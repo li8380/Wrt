@@ -79,23 +79,31 @@ elif [ "$count" -gt 1 ]; then
     uci set network.wan6.device="$wan_ifname"
     uci set network.wan6.proto='dhcpv6'
 
-    # 1. 精确查找 br-lan 对应的 device 段索引
+# 1. 精确查找 br-lan 对应的 device 段索引
 BR_LAN_INDEX=$(uci -q show network | grep -E "\.device\[.*\]=.*name='br-lan'" | cut -d '[' -f2 | cut -d ']' -f1)
+
 if [ -z "$BR_LAN_INDEX" ]; then
-    echo "ERROR: br-lan device configuration not found! Skipping port reset." >> "$LOGFILE"
-    exit 1
-fi
+    echo "WARNING: br-lan device not found, creating it automatically" >> "$LOGFILE"
+# 【核心修复】自动创建 br-lan 设备（解决找不到的根本问题）
+    uci -q delete network.br_lan
+    uci set network.br_lan=device
+    uci set network.br_lan.name='br-lan'
+    uci set network.br_lan.type='bridge'
+    BR_LAN_INDEX="br_lan"
+else
     echo "Found br-lan at network.@device[$BR_LAN_INDEX]" >> "$LOGFILE"
+fi
 
-    # 2. 清空 br-lan 的 ports 列表
-    uci -q del_list network.@device[$BR_LAN_INDEX].ports
+# 2. 清空 br-lan 的 ports 列表（兼容查找/自动创建两种情况）
+uci -q del_list network.${BR_LAN_INDEX}.ports
 
-    # 3. 将识别出的 LAN 口加入网桥
-    for port in $lan_ifnames; do
-    uci add_list network.@device[$BR_LAN_INDEX].ports="$port"
+# 3. 将识别出的 LAN 口加入网桥
+for port in $lan_ifnames; do
+    uci add_list network.${BR_LAN_INDEX}.ports="$port"
     echo "Added LAN port: $port" >> "$LOGFILE"
 done
-    echo "Updated br-lan ports: $lan_ifnames" >> "$LOGFILE"
+
+echo "Updated br-lan ports: $lan_ifnames" >> "$LOGFILE"
 
     # LAN口设置静态IP
     uci set network.lan.proto='static'
